@@ -1,9 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Dimensions, Animated, Image } from 'react-native';
+
+const CalcButton = ({ label, color, width = '25%', onPress }) => (
+  <TouchableOpacity
+    style={[styles.button, { backgroundColor: color, width }]}
+    onPress={() => onPress(label)}
+  >
+    <Text style={styles.buttonText}>{label}</Text>
+  </TouchableOpacity>
+);
 
 export default function App() {
   const [display, setDisplay] = useState('0');
   const [isPortrait, setIsPortrait] = useState(true);
+  const [isRad, setIsRad] = useState(true);
+  const [operatorMemory, setOperatorMemory] = useState(null);
+  const [firstOperand, setFirstOperand] = useState(null);
+  const [memory, setMemory] = useState(0);
+
+  const [showSplash, setShowSplash] = useState(true);
+  const fadeAnim = new Animated.Value(1);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }).start(() => setShowSplash(false));
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const handleOrientationChange = () => {
@@ -13,118 +41,108 @@ export default function App() {
 
     handleOrientationChange();
     Dimensions.addEventListener('change', handleOrientationChange);
-
-    return () => {
-      Dimensions.removeEventListener('change', handleOrientationChange);
-    };
+    return () => Dimensions.removeEventListener('change', handleOrientationChange);
   }, []);
 
-const [isRad, setIsRad] = useState(true); // Radian mode
-const [operatorMemory, setOperatorMemory] = useState(null); // for x^y, y√x
-const [firstOperand, setFirstOperand] = useState(null);
-const [memory, setMemory] = useState(0);
-
-const handlePress = (value) => {
-  if (value === 'AC') {
-    setDisplay('0');
-    setOperatorMemory(null);
-    setFirstOperand(null);
-  } else if (value === 'mc') {
-    setMemory(0);
-  } else if (value === 'm+') {
-    setMemory((prev) => prev + Number(display));
-  } else if (value === 'm-') {
-    setMemory((prev) => prev - Number(display));
-  } else if (value === 'mr') {
-    setDisplay(String(memory));
-  } else if (value === '+/-') {
-    setDisplay((prev) => (prev.startsWith('-') ? prev.slice(1) : prev !== '0' ? '-' + prev : prev));
-  } else if (value === '%') {
-    try {
-      setDisplay(String(Number(display) / 100));
-    } catch {
-      setDisplay('Error');
-    }
-  } else if (value === '=') {
-    try {
-      if (operatorMemory && firstOperand !== null) {
-        let result;
-        const secondOperand = Number(display);
-        if (operatorMemory === 'x^y') result = Math.pow(firstOperand, secondOperand);
-        else if (operatorMemory === 'y√x') result = Math.pow(secondOperand, 1 / firstOperand);
-        setDisplay(String(result));
-        setOperatorMemory(null);
-        setFirstOperand(null);
-      } else {
-        const result = Function(`"use strict"; return (${display})`)();
-        setDisplay(String(result));
+  const handlePress = (value) => {
+    if (value === 'AC') {
+      setDisplay('0');
+      setOperatorMemory(null);
+      setFirstOperand(null);
+    } else if (value === 'mc') {
+      setMemory(0);
+    } else if (value === 'm+') {
+      setMemory((prev) => prev + Number(display));
+    } else if (value === 'm-') {
+      setMemory((prev) => prev - Number(display));
+    } else if (value === 'mr') {
+      setDisplay(String(memory));
+    } else if (value === '+/-') {
+      setDisplay((prev) =>
+        prev.startsWith('-') ? prev.slice(1) : prev !== '0' ? '-' + prev : prev
+      );
+    } else if (value === '%') {
+      try {
+        setDisplay(String(Number(display) / 100));
+      } catch {
+        setDisplay('Error');
       }
-    } catch {
-      setDisplay('Error');
+    } else if (value === '=') {
+      try {
+        if (operatorMemory && firstOperand !== null) {
+          let result;
+          const secondOperand = Number(display);
+          if (operatorMemory === 'x^y') result = Math.pow(firstOperand, secondOperand);
+          else if (operatorMemory === 'y√x') result = Math.pow(secondOperand, 1 / firstOperand);
+          setDisplay(String(result));
+          setOperatorMemory(null);
+          setFirstOperand(null);
+        } else {
+          const result = Function(`"use strict"; return (${display})`)();
+          setDisplay(String(result));
+        }
+      } catch {
+        setDisplay('Error');
+      }
+    } else if (value === ',') {
+      setDisplay((prev) => (prev.includes('.') ? prev : prev + '.'));
+    } else if (value === 'π') {
+      setDisplay((prev) => (prev === '0' ? String(Math.PI) : prev + String(Math.PI)));
+    } else if (value === 'e') {
+      setDisplay((prev) => (prev === '0' ? String(Math.E) : prev + String(Math.E)));
+    } else if (value === 'Rand') {
+      setDisplay(String(Math.random()));
+    } else if (value === 'x^2') {
+      setDisplay(String(Math.pow(Number(display), 2)));
+    } else if (value === 'x^3') {
+      setDisplay(String(Math.pow(Number(display), 3)));
+    } else if (value === '1/x') {
+      setDisplay(String(1 / Number(display)));
+    } else if (value === '2√x') {
+      setDisplay(String(Math.sqrt(Number(display))));
+    } else if (value === '3√x') {
+      setDisplay(String(Math.cbrt(Number(display))));
+    } else if (value === 'Ln') {
+      setDisplay(String(Math.log(Number(display))));
+    } else if (value === 'log10') {
+      setDisplay(String(Math.log10(Number(display))));
+    } else if (value === 'X!') {
+      const factorial = (n) => (n <= 1 ? 1 : n * factorial(n - 1));
+      setDisplay(String(factorial(Number(display))));
+    } else if (value === 'sin') {
+      setDisplay(String(isRad ? Math.sin(Number(display)) : Math.sin(Number(display) * (Math.PI / 180))));
+    } else if (value === 'cos') {
+      setDisplay(String(isRad ? Math.cos(Number(display)) : Math.cos(Number(display) * (Math.PI / 180))));
+    } else if (value === 'tan') {
+      setDisplay(String(isRad ? Math.tan(Number(display)) : Math.tan(Number(display) * (Math.PI / 180))));
+    } else if (value === 'sinh') {
+      setDisplay(String(Math.sinh(Number(display))));
+    } else if (value === 'cosh') {
+      setDisplay(String(Math.cosh(Number(display))));
+    } else if (value === 'tanh') {
+      setDisplay(String(Math.tanh(Number(display))));
+    } else if (value === 'Rad') {
+      setIsRad((prev) => !prev);
+    } else if (value === 'x^y' || value === 'y√x') {
+      setFirstOperand(Number(display));
+      setOperatorMemory(value);
+      setDisplay('0');
+    } else if (value === 'EE') {
+      setDisplay((prev) => prev + 'e');
+    } else if (value === '2nd') {
+      alert('2nd function toggle pressed');
+    } else {
+      setDisplay((prev) => (prev === '0' ? value : prev + value));
     }
-  } else if (value === ',') {
-    setDisplay((prev) => (prev.includes('.') ? prev : prev + '.'));
-  } else if (value === 'π') {
-    setDisplay((prev) => (prev === '0' ? String(Math.PI) : prev + String(Math.PI)));
-  } else if (value === 'e') {
-    setDisplay((prev) => (prev === '0' ? String(Math.E) : prev + String(Math.E)));
-  } else if (value === 'Rand') {
-    setDisplay(String(Math.random()));
-  } else if (value === 'x^2') {
-    setDisplay(String(Math.pow(Number(display), 2)));
-  } else if (value === 'x^3') {
-    setDisplay(String(Math.pow(Number(display), 3)));
-  } else if (value === '1/x') {
-    setDisplay(String(1 / Number(display)));
-  } else if (value === '2√x') {
-    setDisplay(String(Math.sqrt(Number(display))));
-  } else if (value === '3√x') {
-    setDisplay(String(Math.cbrt(Number(display))));
-  } else if (value === 'Ln') {
-    setDisplay(String(Math.log(Number(display))));
-  } else if (value === 'log10') {
-    setDisplay(String(Math.log10(Number(display))));
-  } else if (value === 'X!') {
-    const factorial = (n) => (n <= 1 ? 1 : n * factorial(n - 1));
-    setDisplay(String(factorial(Number(display))));
-  } else if (value === 'sin') {
-    setDisplay(String(isRad ? Math.sin(Number(display)) : Math.sin(Number(display) * (Math.PI / 180))));
-  } else if (value === 'cos') {
-    setDisplay(String(isRad ? Math.cos(Number(display)) : Math.cos(Number(display) * (Math.PI / 180))));
-  } else if (value === 'tan') {
-    setDisplay(String(isRad ? Math.tan(Number(display)) : Math.tan(Number(display) * (Math.PI / 180))));
-  } else if (value === 'sinh') {
-    setDisplay(String(Math.sinh(Number(display))));
-  } else if (value === 'cosh') {
-    setDisplay(String(Math.cosh(Number(display))));
-  } else if (value === 'tanh') {
-    setDisplay(String(Math.tanh(Number(display))));
-  } else if (value === 'Rad') {
-    setIsRad((prev) => !prev);
-  } else if (value === 'x^y' || value === 'y√x') {
-    setFirstOperand(Number(display));
-    setOperatorMemory(value);
-    setDisplay('0');
-  } else if (value === 'EE') {
-    setDisplay((prev) => prev + 'e');
-  } else if (value === '2nd') {
-    alert('2nd function toggle pressed');
-  } else {
-    setDisplay((prev) => (prev === '0' ? value : prev + value));
-  }
-};
+  };
 
-
-
-  const renderButton = (label, color, width = '25%') => (
-    <TouchableOpacity
-      key={label}
-      style={[styles.button, { backgroundColor: color, width }]}
-      onPress={() => handlePress(label)}
-    >
-      <Text style={styles.buttonText}>{label}</Text>
-    </TouchableOpacity>
-  );
+  const standardButtons = [
+    ['AC', '+/-', '%', '/'],
+    ['7', '8', '9', '*'],
+    ['4', '5', '6', '-'],
+    ['1', '2', '3', '+'],
+    ['0', ',', '=']
+  ];
 
   const scientificButtons = [
     ['(', ')', 'mc', 'm+', 'm-', 'mr'],
@@ -134,39 +152,65 @@ const handlePress = (value) => {
     ['Rad', 'sinh', 'cosh', 'tanh', 'π', 'Rand'],
   ];
 
-  const standardLayout = (
+  const getButtonColor = (label) => {
+    if (['/', '*', '-', '+', '='].includes(label)) return '#FF9B0A';
+    if (['AC', '+/-', '%'].includes(label)) return '#555A55';
+    return '#737373';
+  };
+
+  const renderStandardLayout = () => (
     <View style={styles.standardContainer}>
-      <View style={styles.row}>
-        {renderButton('AC', '#555A55')}
-        {renderButton('+/-', '#555A55')}
-        {renderButton('%', '#555A55')}
-        {renderButton('/', '#FF9B0A')}
-      </View>
-      <View style={styles.row}>
-        {renderButton('7', '#737373')}
-        {renderButton('8', '#737373')}
-        {renderButton('9', '#737373')}
-        {renderButton('*', '#FF9B0A')}
-      </View>
-      <View style={styles.row}>
-        {renderButton('4', '#737373')}
-        {renderButton('5', '#737373')}
-        {renderButton('6', '#737373')}
-        {renderButton('-', '#FF9B0A')}
-      </View>
-      <View style={styles.row}>
-        {renderButton('1', '#737373')}
-        {renderButton('2', '#737373')}
-        {renderButton('3', '#737373')}
-        {renderButton('+', '#FF9B0A')}
-      </View>
-      <View style={styles.row}>
-        {renderButton('0', '#737373', '50%')}
-        {renderButton(',', '#737373', '25%')}
-        {renderButton('=', '#FF9B0A', '25%')}
-      </View>
+      {standardButtons.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.row}>
+          {row.map((label, index) => {
+            const width =
+              label === '0' ? '50%' :
+              label === ',' || label === '=' ? '25%' : '25%';
+            return (
+              <CalcButton
+                key={index}
+                label={label}
+                color={getButtonColor(label)}
+                width={width}
+                onPress={handlePress}
+              />
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
+
+  const renderScientificLayout = () => (
+    <View style={{ flex: 6, backgroundColor: 'black' }}>
+      {scientificButtons.map((row, i) => (
+        <View key={i} style={styles.landscapeRow}>
+          {row.map((label, j) => (
+            <CalcButton
+              key={j}
+              label={label}
+              color={'#555A55'}
+              width={`${100 / 6}%`}
+              onPress={handlePress}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+
+  if (showSplash) {
+    return (
+      <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
+      <Text style={styles.splashText}>KALKULATOR INCYDENT</Text>
+        <Image
+          source={require('./assets/egg.png')}
+          style={styles.splashImage}
+          resizeMode="contain"
+        />
+      </Animated.View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -177,32 +221,19 @@ const handlePress = (value) => {
               {display}
             </Text>
           </View>
-          <View style={{ flex: 1 }}>{standardLayout}</View>
+          <View style={{ flex: 1 }}>{renderStandardLayout()}</View>
         </>
       ) : (
         <View style={{ flex: 1 }}>
-          {/* Display Area (Top Bar) */}
           <View style={[styles.displayContainer, { height: '16.6%' }]}>
             <Text style={[styles.displayText, { fontSize: 40 }]} numberOfLines={1} adjustsFontSizeToFit>
               {display}
             </Text>
           </View>
 
-          {/* Buttons Area */}
           <View style={{ flexDirection: 'row', flex: 1 }}>
-            {/* LEFT: Scientific Buttons */}
-            <View style={{ flex: 6, backgroundColor: 'black' }}>
-              {scientificButtons.map((row, i) => (
-                <View key={i} style={styles.landscapeRow}>
-                  {row.map((label) =>
-                    renderButton(label, '#555A55', `${100 / 6}%`)
-                  )}
-                </View>
-              ))}
-            </View>
-
-            {/* RIGHT: Standard Calculator */}
-            <View style={{ flex: 4 }}>{standardLayout}</View>
+            {renderScientificLayout()}
+            <View style={{ flex: 4 }}>{renderStandardLayout()}</View>
           </View>
         </View>
       )}
@@ -249,5 +280,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     height: '20%',
     justifyContent: 'space-between',
+  },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  splashImage: {
+    width: 150,
+    height: 150,
+    marginBottom: 20,
+  },
+  splashText: {
+    color: '#FF9B0A',
+    fontSize: 28,
+    fontWeight: 'bold',
   },
 });
