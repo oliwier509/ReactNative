@@ -194,7 +194,15 @@ function TestScreen({route, navigation}) {
   const progressWidth = `${(timeLeft / 30) * 100}%`;
 
   return (
-    <SafeAreaView style={styles.container}>
+        <SafeAreaView
+      style={[
+        styles.container,
+        {
+          paddingTop:
+            Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32,
+        },
+      ]}
+    >
       <TopBar title={`Test ${testName}`} leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
         {!completed && q && (
@@ -252,7 +260,15 @@ function ResultsScreen({navigation}) {
   }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.container}>
+        <SafeAreaView
+      style={[
+        styles.container,
+        {
+          paddingTop:
+            Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32,
+        },
+      ]}
+    >
       <TopBar title="RESULTS" leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
         <View style={styles.tableHeader}>
