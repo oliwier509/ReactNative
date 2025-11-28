@@ -1,300 +1,396 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Dimensions, Animated, Image } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createDrawerNavigator } from '@react-navigation/drawer';
+import { enableScreens } from 'react-native-screens';
+enableScreens();
+import React, {useState, useEffect, useRef} from 'react';
+import {
+  SafeAreaView,
+  View,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  FlatList,
+  StyleSheet,
+  Alert,
+  Image,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CalcButton = ({ label, color, width = '25%', onPress }) => (
-  <TouchableOpacity
-    style={[styles.button, { backgroundColor: color, width }]}
-    onPress={() => onPress(label)}
-  >
-    <Text style={styles.buttonText}>{label}</Text>
-  </TouchableOpacity>
-);
+const Stack = createNativeStackNavigator();
+const Drawer = createDrawerNavigator();
 
-export default function App() {
-  const [display, setDisplay] = useState('0');
-  const [isPortrait, setIsPortrait] = useState(true);
-  const [isRad, setIsRad] = useState(true);
-  const [operatorMemory, setOperatorMemory] = useState(null);
-  const [firstOperand, setFirstOperand] = useState(null);
-  const [memory, setMemory] = useState(0);
+const SAMPLE_TESTS = [
+  {
+    id: '1',
+    name: 'Matematyka podstawowa',
+    questions: [
+      {id: 'q1', text: 'Ile to 2 + 2?', correct: 'A'},
+      {id: 'q2', text: 'Ile to 5 - 3?', correct: 'B'},
+      {id: 'q3', text: 'Ile to 3 * 3?', correct: 'C'},
+    ],
+  },
+  {
+    id: '2',
+    name: 'Fizyka 101',
+    questions: [
+      {id: 'q1', text: 'Co to jest siła?', correct: 'D'},
+      {id: 'q2', text: 'Jednostka prędkości?', correct: 'A'},
+    ],
+  },
+];
 
-  const [showSplash, setShowSplash] = useState(true);
-  const fadeAnim = new Animated.Value(1);
+const RESULTS_KEY = '@quiz_results_v1';
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 600,
-        useNativeDriver: true,
-      }).start(() => setShowSplash(false));
-    }, 2000);
+function saveResult(result) {
+  return AsyncStorage.getItem(RESULTS_KEY).then(existing => {
+    const arr = existing ? JSON.parse(existing) : [];
+    arr.push(result);
+    return AsyncStorage.setItem(RESULTS_KEY, JSON.stringify(arr));
+  });
+}
 
-    return () => clearTimeout(timer);
-  }, []);
+function loadResults() {
+  return AsyncStorage.getItem(RESULTS_KEY).then(existing => {
+    return existing ? JSON.parse(existing) : [];
+  });
+}
 
-  useEffect(() => {
-    const handleOrientationChange = () => {
-      const { width, height } = Dimensions.get('window');
-      setIsPortrait(height >= width);
-    };
-
-    handleOrientationChange();
-    Dimensions.addEventListener('change', handleOrientationChange);
-    return () => Dimensions.removeEventListener('change', handleOrientationChange);
-  }, []);
-
-  const handlePress = (value) => {
-    if (value === 'AC') {
-      setDisplay('0');
-      setOperatorMemory(null);
-      setFirstOperand(null);
-    } else if (value === 'mc') {
-      setMemory(0);
-    } else if (value === 'm+') {
-      setMemory((prev) => prev + Number(display));
-    } else if (value === 'm-') {
-      setMemory((prev) => prev - Number(display));
-    } else if (value === 'mr') {
-      setDisplay(String(memory));
-    } else if (value === '+/-') {
-      setDisplay((prev) =>
-        prev.startsWith('-') ? prev.slice(1) : prev !== '0' ? '-' + prev : prev
-      );
-    } else if (value === '%') {
-      try {
-        setDisplay(String(Number(display) / 100));
-      } catch {
-        setDisplay('Error');
-      }
-    } else if (value === '=') {
-      try {
-        if (operatorMemory && firstOperand !== null) {
-          let result;
-          const secondOperand = Number(display);
-          if (operatorMemory === 'x^y') result = Math.pow(firstOperand, secondOperand);
-          else if (operatorMemory === 'y√x') result = Math.pow(secondOperand, 1 / firstOperand);
-          setDisplay(String(result));
-          setOperatorMemory(null);
-          setFirstOperand(null);
-        } else {
-          const result = Function(`"use strict"; return (${display})`)();
-          setDisplay(String(result));
-        }
-      } catch {
-        setDisplay('Error');
-      }
-    } else if (value === ',') {
-      setDisplay((prev) => (prev.includes('.') ? prev : prev + '.'));
-    } else if (value === 'π') {
-      setDisplay((prev) => (prev === '0' ? String(Math.PI) : prev + String(Math.PI)));
-    } else if (value === 'e') {
-      setDisplay((prev) => (prev === '0' ? String(Math.E) : prev + String(Math.E)));
-    } else if (value === 'Rand') {
-      setDisplay(String(Math.random()));
-    } else if (value === 'x^2') {
-      setDisplay(String(Math.pow(Number(display), 2)));
-    } else if (value === 'x^3') {
-      setDisplay(String(Math.pow(Number(display), 3)));
-    } else if (value === '1/x') {
-      setDisplay(String(1 / Number(display)));
-    } else if (value === '2√x') {
-      setDisplay(String(Math.sqrt(Number(display))));
-    } else if (value === '3√x') {
-      setDisplay(String(Math.cbrt(Number(display))));
-    } else if (value === 'Ln') {
-      setDisplay(String(Math.log(Number(display))));
-    } else if (value === 'log10') {
-      setDisplay(String(Math.log10(Number(display))));
-    } else if (value === 'X!') {
-      const factorial = (n) => (n <= 1 ? 1 : n * factorial(n - 1));
-      setDisplay(String(factorial(Number(display))));
-    } else if (value === 'sin') {
-      setDisplay(String(isRad ? Math.sin(Number(display)) : Math.sin(Number(display) * (Math.PI / 180))));
-    } else if (value === 'cos') {
-      setDisplay(String(isRad ? Math.cos(Number(display)) : Math.cos(Number(display) * (Math.PI / 180))));
-    } else if (value === 'tan') {
-      setDisplay(String(isRad ? Math.tan(Number(display)) : Math.tan(Number(display) * (Math.PI / 180))));
-    } else if (value === 'sinh') {
-      setDisplay(String(Math.sinh(Number(display))));
-    } else if (value === 'cosh') {
-      setDisplay(String(Math.cosh(Number(display))));
-    } else if (value === 'tanh') {
-      setDisplay(String(Math.tanh(Number(display))));
-    } else if (value === 'Rad') {
-      setIsRad((prev) => !prev);
-    } else if (value === 'x^y' || value === 'y√x') {
-      setFirstOperand(Number(display));
-      setOperatorMemory(value);
-      setDisplay('0');
-    } else if (value === 'EE') {
-      setDisplay((prev) => prev + 'e');
-    } else if (value === '2nd') {
-      alert('2nd function toggle pressed');
-    } else {
-      setDisplay((prev) => (prev === '0' ? value : prev + value));
-    }
-  };
-
-  const standardButtons = [
-    ['AC', '+/-', '%', '/'],
-    ['7', '8', '9', '*'],
-    ['4', '5', '6', '-'],
-    ['1', '2', '3', '+'],
-    ['0', ',', '=']
-  ];
-
-  const scientificButtons = [
-    ['(', ')', 'mc', 'm+', 'm-', 'mr'],
-    ['2nd', 'x^2', 'x^3', 'x^y', 'e^x', '10^x'],
-    ['1/x', '2√x', '3√x', 'y√x', 'Ln', 'log10'],
-    ['X!', 'sin', 'cos', 'tan', 'e', 'EE'],
-    ['Rad', 'sinh', 'cosh', 'tanh', 'π', 'Rand'],
-  ];
-
-  const getButtonColor = (label) => {
-    if (['/', '*', '-', '+', '='].includes(label)) return '#FF9B0A';
-    if (['AC', '+/-', '%'].includes(label)) return '#555A55';
-    return '#737373';
-  };
-
-  const renderStandardLayout = () => (
-    <View style={styles.standardContainer}>
-      {standardButtons.map((row, rowIndex) => (
-        <View key={rowIndex} style={styles.row}>
-          {row.map((label, index) => {
-            const width =
-              label === '0' ? '50%' :
-              label === ',' || label === '=' ? '25%' : '25%';
-            return (
-              <CalcButton
-                key={index}
-                label={label}
-                color={getButtonColor(label)}
-                width={width}
-                onPress={handlePress}
-              />
-            );
-          })}
-        </View>
-      ))}
-    </View>
-  );
-
-  const renderScientificLayout = () => (
-    <View style={{ flex: 6, backgroundColor: 'black' }}>
-      {scientificButtons.map((row, i) => (
-        <View key={i} style={styles.landscapeRow}>
-          {row.map((label, j) => (
-            <CalcButton
-              key={j}
-              label={label}
-              color={'#555A55'}
-              width={`${100 / 6}%`}
-              onPress={handlePress}
-            />
-          ))}
-        </View>
-      ))}
-    </View>
-  );
-
-  if (showSplash) {
-    return (
-      <Animated.View style={[styles.splashContainer, { opacity: fadeAnim }]}>
-      <Text style={styles.splashText}>KALKULATOR INCYDENT</Text>
-        <Image
-          source={require('./assets/egg.png')}
-          style={styles.splashImage}
-          resizeMode="contain"
-        />
-      </Animated.View>
-    );
-  }
-
+function TopBar({title, leftButton}) {
   return (
-    <View style={styles.container}>
-      {isPortrait ? (
-        <>
-          <View style={[styles.displayContainer, { height: '16.6%' }]}>
-            <Text style={[styles.displayText, { fontSize: 60 }]} numberOfLines={1} adjustsFontSizeToFit>
-              {display}
-            </Text>
-          </View>
-          <View style={{ flex: 1 }}>{renderStandardLayout()}</View>
-        </>
-      ) : (
-        <View style={{ flex: 1 }}>
-          <View style={[styles.displayContainer, { height: '16.6%' }]}>
-            <Text style={[styles.displayText, { fontSize: 40 }]} numberOfLines={1} adjustsFontSizeToFit>
-              {display}
-            </Text>
-          </View>
-
-          <View style={{ flexDirection: 'row', flex: 1 }}>
-            {renderScientificLayout()}
-            <View style={{ flex: 4 }}>{renderStandardLayout()}</View>
-          </View>
-        </View>
-      )}
+    <View style={styles.topBar}>
+      <TouchableOpacity onPress={leftButton} style={styles.hamburger}>
+        <View style={styles.bar} />
+        <View style={styles.bar} />
+        <View style={styles.bar} />
+      </TouchableOpacity>
+      <Text style={styles.topTitle}>{title}</Text>
+      <View style={{width: 44}} />
     </View>
   );
 }
 
+function HomeScreen({navigation}) {
+  return (
+    <SafeAreaView style={styles.container}>
+      <TopBar title="HOME PAGE" leftButton={() => navigation.openDrawer()} />
+
+      <View style={styles.content}>
+        <Text style={styles.sectionTitle}>Lista testów</Text>
+        {SAMPLE_TESTS.map(t => (
+          <View key={t.id} style={styles.testRow}>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() =>
+                navigation.navigate('Test', {testId: t.id, testName: t.name})
+              }>
+              <Text style={styles.testButtonText}>[{t.name}]</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function TestScreen({route, navigation}) {
+  const {testId, testName} = route.params;
+  const test = SAMPLE_TESTS.find(t => t.id === testId);
+  const [index, setIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const timerRef = useRef(null);
+  const [completed, setCompleted] = useState(false);
+  const [playerName, setPlayerName] = useState('');
+
+  useEffect(() => {
+    startTimer();
+    return () => clearInterval(timerRef.current);
+  }, [index]);
+
+  const startTimer = () => {
+    clearInterval(timerRef.current);
+    setTimeLeft(30);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          goToNextQuestion(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  if (!test) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TopBar title={`Test ${testName}`} leftButton={() => navigation.goBack()} />
+        <View style={styles.content}><Text>Test nie znaleziony</Text></View>
+      </SafeAreaView>
+    );
+  }
+
+  const q = test.questions[index];
+
+  const goToNextQuestion = (correct) => {
+    if (correct) setScore(s => s + 1);
+    if (index + 1 >= test.questions.length) {
+      setCompleted(true);
+      clearInterval(timerRef.current);
+    } else {
+      setIndex(i => i + 1);
+    }
+  };
+
+  function answer(letter) {
+    if (completed) return;
+    clearInterval(timerRef.current);
+    goToNextQuestion(letter === q.correct);
+  }
+
+  async function submitName() {
+    if (!playerName.trim()) {
+      Alert.alert('Proszę wpisać imię');
+      return;
+    }
+    const result = {
+      name: playerName.trim(),
+      points: score,
+      testName: test.name,
+      date: new Date().toISOString(),
+    };
+    try {
+      await saveResult(result);
+      Alert.alert('Zapisano');
+      navigation.navigate('Results');
+    } catch (e) {
+      Alert.alert('Błąd zapisu');
+    }
+  }
+
+  const progressWidth = `${(timeLeft / 30) * 100}%`;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <TopBar title={`Test ${testName}`} leftButton={() => navigation.openDrawer()} />
+      <View style={styles.content}>
+        <View style={styles.topRow}>
+          <Text style={styles.small}>Question {index + 1} of {test.questions.length}</Text>
+          <Text style={styles.small}>Time left: {timeLeft}s</Text>
+        </View>
+
+        <View style={styles.progressBarBackground}>
+          <View style={[styles.progressBarFill, {width: progressWidth}]} />
+        </View>
+
+        <Text style={styles.questionText}>{q.text}</Text>
+
+        {!completed ? (
+          <View style={styles.answersBox}>
+            {['A', 'B', 'C', 'D'].map(letter => (
+              <TouchableOpacity key={letter} style={styles.answerButton} onPress={() => answer(letter)}>
+                <Text style={styles.answerText}>Answer {letter}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.submitBox}>
+            <Text style={{marginBottom: 8}}>Score: {score}</Text>
+            <TextInput style={styles.input} placeholder="Wpisz swoje imię" value={playerName} onChangeText={setPlayerName} />
+            <TouchableOpacity style={styles.saveButton} onPress={submitName}>
+              <Text style={styles.saveButtonText}>Save score</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+
+function ResultsScreen({navigation}) {
+  const [results, setResults] = useState([]);
+
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => loadResults().then(setResults));
+    loadResults().then(setResults);
+    return unsub;
+  }, [navigation]);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <TopBar title="RESULTS" leftButton={() => navigation.openDrawer()} />
+      <View style={styles.content}>
+        <View style={styles.tableHeader}>
+          <Text style={[styles.cell, styles.headCell]}>Name</Text>
+          <Text style={[styles.cell, styles.headCell]}>Points</Text>
+          <Text style={[styles.cell, styles.headCell]}>Test Name</Text>
+          <Text style={[styles.cell, styles.headCell]}>Date</Text>
+        </View>
+
+        <FlatList
+          data={results}
+          keyExtractor={(item, idx) => item.name + idx}
+          renderItem={({item}) => (
+            <View style={styles.tableRow}>
+              <Text style={styles.cell}>{item.name}</Text>
+              <Text style={styles.cell}>{item.points}</Text>
+              <Text style={styles.cell}>{item.testName}</Text>
+              <Text style={styles.cell}>{new Date(item.date).toLocaleString()}</Text>
+            </View>
+          )}
+        />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function DrawerContent({navigation}) {
+  return (
+    <SafeAreaView style={{flex: 1, padding: 16}}>
+      <Text style={{fontSize: 22, fontWeight: '700', marginBottom: 10}}>Quiz App</Text>
+      <Image source={require('./assets/egg.png')} style={{width: 120, height: 120, marginBottom: 20}} />
+
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Home')}
+        style={[styles.drawerButton, {marginBottom: 20}]}
+      >
+        <Text style={{fontSize: 18}}>Home Page</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Results')}
+        style={[styles.drawerButton, {marginBottom: 20}]}
+      >
+        <Text style={{fontSize: 18}}>Results</Text>
+      </TouchableOpacity>
+
+      <View style={{borderBottomWidth: 1, borderBottomColor: '#ccc', marginVertical: 12}} />
+
+      {SAMPLE_TESTS.map(t => (
+        <TouchableOpacity
+          key={t.id}
+          onPress={() => navigation.navigate('Test', {testId: t.id, testName: t.name})}
+          style={[styles.drawerButton, {marginBottom: 15}]}
+        >
+          <Text style={{fontSize: 18}}>Test {t.name}</Text>
+        </TouchableOpacity>
+      ))}
+    </SafeAreaView>
+  );
+}
+
+
+
+function DrawerNavigator() {
+  return (
+    <Drawer.Navigator screenOptions={{headerShown: false}} drawerContent={props => <DrawerContent {...props} />}>
+      <Drawer.Screen name="Home" component={HomeScreen} />
+      <Drawer.Screen name="Test" component={TestScreen} />
+      <Drawer.Screen name="Results" component={ResultsScreen} />
+    </Drawer.Navigator>
+  );
+}
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <DrawerNavigator />
+    </NavigationContainer>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: 'black',
+  container: {flex: 1, backgroundColor: '#fff'},
+
+  drawerButton: {
+  padding: 12,
+  borderWidth: 1,
+  borderColor: '#888',
+  borderRadius: 8,
   },
-  displayContainer: {
-    justifyContent: 'flex-end',
-    alignItems: 'flex-end',
-    backgroundColor: '#414646',
-    padding: 20,
-  },
-  displayText: {
-    color: 'white',
-    fontSize: 60,
-  },
-  standardContainer: {
-    justifyContent: 'flex-end',
-    flex: 1,
-  },
-  row: {
+  topBar: {
+    height: 56,
     flexDirection: 'row',
-    height: '20%',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
     justifyContent: 'space-between',
   },
-  button: {
-    justifyContent: 'center',
+  hamburger: {width: 44, justifyContent: 'center'},
+  bar: {height: 3, backgroundColor: '#222', marginVertical: 2, width: 22},
+  topTitle: {fontSize: 18, fontWeight: '700'},
+
+  content: {flex: 1, padding: 16},
+
+  sectionTitle: {fontSize: 16, fontWeight: '600', marginBottom: 8},
+
+  testRow: {marginVertical: 6},
+  testButton: {
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  testButtonText: {fontSize: 16},
+
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  small: {fontSize: 12, color: '#333'},
+
+  questionText: {fontSize: 18, marginBottom: 16},
+
+  answersBox: {flexDirection: 'column', gap: 8},
+  answerButton: {
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  answerText: {fontSize: 16},
+
+  submitBox: {marginTop: 8},
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  saveButton: {
+    padding: 12,
+    backgroundColor: '#28A745',
+    borderRadius: 8,
     alignItems: 'center',
+  },
+  saveButtonText: {color: '#fff', fontWeight: '700'},
+
+  tableHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    paddingBottom: 8,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  progressBarBackground: {
+    height: 8,
+    backgroundColor: '#eee',
+    borderRadius: 4,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+    progressBarFill: {
     height: '100%',
-    borderWidth: 0.5,
-    borderColor: '#000',
+    backgroundColor: 'yellow',
   },
-  buttonText: {
-    color: 'white',
-    fontSize: 22,
-  },
-  landscapeRow: {
-    flexDirection: 'row',
-    height: '20%',
-    justifyContent: 'space-between',
-  },
-  splashContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  splashImage: {
-    width: 150,
-    height: 150,
-    marginBottom: 20,
-  },
-  splashText: {
-    color: '#FF9B0A',
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
+  cell: {flex: 1, fontSize: 12},
+  headCell: {fontWeight: '700'},
 });
