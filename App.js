@@ -1,5 +1,4 @@
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { enableScreens } from 'react-native-screens';
 enableScreens();
@@ -17,7 +16,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 
 const SAMPLE_TESTS = [
@@ -93,9 +91,12 @@ function HomeScreen({navigation}) {
   );
 }
 
+
+
 function TestScreen({route, navigation}) {
   const {testId, testName} = route.params;
   const test = SAMPLE_TESTS.find(t => t.id === testId);
+
   const [index, setIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
@@ -104,9 +105,19 @@ function TestScreen({route, navigation}) {
   const [playerName, setPlayerName] = useState('');
 
   useEffect(() => {
+    setIndex(0);
+    setScore(0);
+    setTimeLeft(30);
+    setCompleted(false);
+    setPlayerName('');
+    clearInterval(timerRef.current);
     startTimer();
+  }, [testId]);
+
+  useEffect(() => {
+    if (!completed) startTimer();
     return () => clearInterval(timerRef.current);
-  }, [index]);
+  }, [index, completed]);
 
   const startTimer = () => {
     clearInterval(timerRef.current);
@@ -132,10 +143,11 @@ function TestScreen({route, navigation}) {
     );
   }
 
-  const q = test.questions[index];
+  const q = !completed ? test.questions[index] : null;
 
   const goToNextQuestion = (correct) => {
     if (correct) setScore(s => s + 1);
+
     if (index + 1 >= test.questions.length) {
       setCompleted(true);
       clearInterval(timerRef.current);
@@ -147,7 +159,7 @@ function TestScreen({route, navigation}) {
   function answer(letter) {
     if (completed) return;
     clearInterval(timerRef.current);
-    goToNextQuestion(letter === q.correct);
+    if (q) goToNextQuestion(letter === q.correct);
   }
 
   async function submitName() {
@@ -176,29 +188,38 @@ function TestScreen({route, navigation}) {
     <SafeAreaView style={styles.container}>
       <TopBar title={`Test ${testName}`} leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
-        <View style={styles.topRow}>
-          <Text style={styles.small}>Question {index + 1} of {test.questions.length}</Text>
-          <Text style={styles.small}>Time left: {timeLeft}s</Text>
-        </View>
+        {!completed && q && (
+          <>
+            <View style={styles.topRow}>
+              <Text style={styles.small}>Question {index + 1} of {test.questions.length}</Text>
+              <Text style={styles.small}>Time left: {timeLeft}s</Text>
+            </View>
 
-        <View style={styles.progressBarBackground}>
-          <View style={[styles.progressBarFill, {width: progressWidth}]} />
-        </View>
+            <View style={styles.progressBarBackground}>
+              <View style={[styles.progressBarFill, {width: progressWidth}]} />
+            </View>
 
-        <Text style={styles.questionText}>{q.text}</Text>
+            <Text style={styles.questionText}>{q.text}</Text>
 
-        {!completed ? (
-          <View style={styles.answersBox}>
-            {['A', 'B', 'C', 'D'].map(letter => (
-              <TouchableOpacity key={letter} style={styles.answerButton} onPress={() => answer(letter)}>
-                <Text style={styles.answerText}>Answer {letter}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : (
+            <View style={styles.answersBox}>
+              {['A', 'B', 'C', 'D'].map(letter => (
+                <TouchableOpacity key={letter} style={styles.answerButton} onPress={() => answer(letter)}>
+                  <Text style={styles.answerText}>Answer {letter}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        {completed && (
           <View style={styles.submitBox}>
             <Text style={{marginBottom: 8}}>Score: {score}</Text>
-            <TextInput style={styles.input} placeholder="Wpisz swoje imię" value={playerName} onChangeText={setPlayerName} />
+            <TextInput
+              style={styles.input}
+              placeholder="Wpisz swoje imię"
+              value={playerName}
+              onChangeText={setPlayerName}
+            />
             <TouchableOpacity style={styles.saveButton} onPress={submitName}>
               <Text style={styles.saveButtonText}>Save score</Text>
             </TouchableOpacity>
@@ -208,6 +229,8 @@ function TestScreen({route, navigation}) {
     </SafeAreaView>
   );
 }
+
+
 
 
 function ResultsScreen({navigation}) {
