@@ -1,6 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { enableScreens } from 'react-native-screens';
+import { Platform, StatusBar } from 'react-native';
 enableScreens();
 import React, {useState, useEffect, useRef} from 'react';
 import {
@@ -70,7 +71,15 @@ function TopBar({title, leftButton}) {
 
 function HomeScreen({navigation}) {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        {
+          paddingTop:
+            Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32,
+        },
+      ]}
+    >
       <TopBar title="HOME PAGE" leftButton={() => navigation.openDrawer()} />
 
       <View style={styles.content}>
