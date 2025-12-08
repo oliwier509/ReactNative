@@ -95,7 +95,12 @@ function SplashScreen({ onFinish }) {
 
 function WelcomeScreen({ onAgree }) {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32 },
+      ]}
+    >
       <Text style={styles.sectionTitle}>Regulamin aplikacji</Text>
       <Text style={{ marginBottom: 20 }}>
         Tutaj umieść treść regulaminu aplikacji.
@@ -444,3 +449,4 @@ const styles = StyleSheet.create({
   cell: { flex: 1, fontSize: 12 },
   headCell: { fontWeight: '700' },
 });
+
