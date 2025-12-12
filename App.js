@@ -68,16 +68,101 @@ const SAMPLE_TESTS = [
   },
 ];
 
-async function saveResult(result) {
-  const existing = await AsyncStorage.getItem(RESULTS_KEY);
-  const arr = existing ? JSON.parse(existing) : [];
-  arr.push(result);
-  await AsyncStorage.setItem(RESULTS_KEY, JSON.stringify(arr));
+async function saveResultLocal(result) {
+  try {
+    const existing = await AsyncStorage.getItem(RESULTS_KEY);
+    const arr = existing ? JSON.parse(existing) : [];
+    arr.push(result);
+    await AsyncStorage.setItem(RESULTS_KEY, JSON.stringify(arr));
+  } catch (e) {
+    console.warn('saveResultLocal error', e);
+  }
 }
 
-async function loadResults() {
-  const existing = await AsyncStorage.getItem(RESULTS_KEY);
-  return existing ? JSON.parse(existing) : [];
+async function loadResultsLocal() {
+  try {
+    const existing = await AsyncStorage.getItem(RESULTS_KEY);
+    return existing ? JSON.parse(existing) : [];
+  } catch (e) {
+    console.warn('loadResultsLocal error', e);
+    return [];
+  }
+}
+
+async function sendResultRemoteAndSave(result) {
+  try {
+    await fetch('https://tgryl.pl/quiz/result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(result),
+    });
+  } catch (e) {
+    console.warn('Send result remote failed', e);
+  } finally {
+    await saveResultLocal(result);
+  }
+}
+
+async function loadResultsRemote(last = 20) {
+  try {
+    const res = await fetch(`https://tgryl.pl/quiz/results?last=${last}`);
+    if (!res.ok) throw new Error('Network error');
+    const json = await res.json();
+
+    if (!Array.isArray(json)) return [];
+
+    return json.map(r => ({
+      nick: r.nick,
+      score: r.score,
+      total: r.total,
+      type: r.type,
+      date: r.createdOn,
+      id: r.id
+    }));
+  } catch (e) {
+    console.warn('loadResultsRemote error', e);
+    return [];
+  }
+}
+
+async function fetchTestsList() {
+  try {
+    const res = await fetch('https://tgryl.pl/quiz/tests');
+    if (!res.ok) throw new Error('Network error');
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
+  } catch (e) {
+    console.warn('fetchTestsList error', e);
+    return [];
+  }
+}
+
+async function fetchTestDetailsAndTranslate(id) {
+  try {
+    const res = await fetch(`https://tgryl.pl/quiz/test/${id}`);
+    if (!res.ok) throw new Error('Network error');
+    const json = await res.json();
+    const translated = {
+      id: json.id || id,
+      name: json.name || `Test ${id}`,
+      questions: Array.isArray(json.tasks)
+        ? json.tasks.map((t) => ({
+            question: t.question || '',
+            duration: t.duration || 30,
+            answers: Array.isArray(t.answers)
+              ? t.answers.map((a) => ({
+                  content: a.content || a,
+                  isCorrect: !!a.isCorrect,
+                }))
+              : [],
+          }))
+        : [],
+    };
+    return translated;
+  } catch (e) {
+    console.warn('fetchTestDetailsAndTranslate error', e);
+    return null;
+  }
 }
 
 function SplashScreen({ onFinish }) {
@@ -88,7 +173,7 @@ function SplashScreen({ onFinish }) {
   return (
     <SafeAreaView style={styles.center}>
       <Image source={require('./assets/logo.png')} style={{ width: 150, height: 150 }} />
-      <Text style={{ fontSize: 22, marginTop: 12 }}>Quiz App</Text>
+      <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Quiz App</Text>
     </SafeAreaView>
   );
 }
@@ -101,8 +186,8 @@ function WelcomeScreen({ onAgree }) {
         { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32 },
       ]}
     >
-      <Text style={styles.sectionTitle}>Regulamin aplikacji</Text>
-      <Text style={{ marginBottom: 20 }}>
+      <Text style={[styles.sectionTitle, styles.headingFont]}>Regulamin aplikacji</Text>
+      <Text style={{ marginBottom: 20, fontFamily: 'Roboto-Regular' }}>
         Tutaj umieść treść regulaminu aplikacji.
       </Text>
       <TouchableOpacity style={styles.saveButton} onPress={onAgree}>
@@ -120,13 +205,35 @@ function TopBar({ title, leftButton }) {
         <View style={styles.bar} />
         <View style={styles.bar} />
       </TouchableOpacity>
-      <Text style={styles.topTitle}>{title}</Text>
+      <Text style={[styles.topTitle, styles.headingFont]}>{title}</Text>
       <View style={{ width: 44 }} />
     </View>
   );
 }
 
 function HomeScreen({ navigation }) {
+  const [tests, setTests] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      const list = await fetchTestsList();
+      if (mounted) {
+        const mapped = list.map((t) => {
+          if (typeof t === 'string') return { id: t, name: `Test ${t}` };
+          return { id: t.id || t._id || t._id, name: t.name || t.title || `Test ${t.id || ''}` };
+        });
+        setTests(mapped.length ? mapped : SAMPLE_TESTS.map((s) => ({ id: s.id, name: s.name })));
+      }
+      setLoading(false);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <SafeAreaView
       style={[
@@ -136,17 +243,21 @@ function HomeScreen({ navigation }) {
     >
       <TopBar title="HOME PAGE" leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
-        <Text style={styles.sectionTitle}>Lista testów</Text>
-        {SAMPLE_TESTS.map((t) => (
-          <View key={t.id} style={styles.testRow}>
-            <TouchableOpacity
-              style={styles.testButton}
-              onPress={() => navigation.navigate('Test', { testId: t.id, testName: t.name })}
-            >
-              <Text style={styles.testButtonText}>[{t.name}]</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+        <Text style={[styles.sectionTitle, styles.headingFont]}>Lista testów</Text>
+        {loading && <ActivityIndicator size="small" />}
+        {!loading && tests && tests.length === 0 && <Text>Brak testów</Text>}
+        {!loading &&
+          tests &&
+          tests.map((t) => (
+            <View key={t.id} style={styles.testRow}>
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })}
+              >
+                <Text style={[styles.testButtonText, { fontFamily: 'Roboto-Regular' }]}>{t.name}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
       </View>
     </SafeAreaView>
   );
@@ -154,32 +265,52 @@ function HomeScreen({ navigation }) {
 
 function TestScreen({ route, navigation }) {
   const { testId, testName } = route.params;
-  const test = SAMPLE_TESTS.find((t) => t.id === testId);
+  const localTest = SAMPLE_TESTS.find((t) => t.id === testId);
+  const [test, setTest] = useState(localTest || null);
   const [index, setIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
   const timerRef = useRef(null);
   const [completed, setCompleted] = useState(false);
   const [playerName, setPlayerName] = useState('');
-
   useEffect(() => {
-    setIndex(0);
-    setScore(0);
-    setTimeLeft(30);
-    setCompleted(false);
-    setPlayerName('');
-    clearInterval(timerRef.current);
-    startTimer();
+    let mounted = true;
+    (async () => {
+      if (!localTest) {
+        const fetched = await fetchTestDetailsAndTranslate(testId);
+        if (mounted && fetched) {
+          setTest(fetched);
+        }
+      }
+    })();
+    return () => (mounted = false);
   }, [testId]);
 
   useEffect(() => {
-    if (!completed) startTimer();
-    return () => clearInterval(timerRef.current);
-  }, [index, completed]);
-
-  const startTimer = () => {
+    if (!test) return;
+    setIndex(0);
+    setScore(0);
+    setCompleted(false);
+    setPlayerName('');
     clearInterval(timerRef.current);
-    setTimeLeft(30);
+    const firstDuration = test.questions?.[0]?.duration || 30;
+    setTimeLeft(firstDuration);
+    startTimer(firstDuration);
+    return () => clearInterval(timerRef.current);
+  }, [testId, test]);
+
+  useEffect(() => {
+    if (!test || completed) return;
+    clearInterval(timerRef.current);
+    const dur = test.questions?.[index]?.duration || 30;
+    setTimeLeft(dur);
+    startTimer(dur);
+    return () => clearInterval(timerRef.current);
+  }, [index, test, completed]);
+
+  const startTimer = (duration = 30) => {
+    clearInterval(timerRef.current);
+    setTimeLeft(duration);
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -195,9 +326,10 @@ function TestScreen({ route, navigation }) {
   if (!test) {
     return (
       <SafeAreaView style={styles.container}>
-        <TopBar title={`Test ${testName}`} leftButton={() => navigation.goBack()} />
+        <TopBar title={`Test ${testName || ''}`} leftButton={() => navigation.goBack()} />
         <View style={styles.content}>
-          <Text>Test nie znaleziony</Text>
+          <Text>Ładowanie testu...</Text>
+          <ActivityIndicator />
         </View>
       </SafeAreaView>
     );
@@ -215,11 +347,11 @@ function TestScreen({ route, navigation }) {
     }
   };
 
-  const answer = (letter) => {
+  const answer = (idx) => {
     if (completed) return;
     clearInterval(timerRef.current);
-    if (q) {
-      goToNextQuestion(q.answers[letter].isCorrect);
+    if (q && q.answers[idx]) {
+      goToNextQuestion(!!q.answers[idx].isCorrect);
     }
   };
 
@@ -228,15 +360,14 @@ function TestScreen({ route, navigation }) {
       Alert.alert('Proszę wpisać imię');
       return;
     }
-    const result = {
+    const resultPayload = {
       nick: playerName.trim(),
       score: score,
       total: test.questions.length,
-      type: test.name,
-      date: new Date().toISOString(),
+      type: test.name || testName || 'unknown'
     };
     try {
-      await saveResult(result);
+      await sendResultRemoteAndSave(resultPayload);
       Alert.alert('Zapisano');
       navigation.navigate('Results');
     } catch (e) {
@@ -244,7 +375,8 @@ function TestScreen({ route, navigation }) {
     }
   }
 
-  const progressWidth = `${(timeLeft / 30) * 100}%`;
+  const maxDuration = q?.duration || 30;
+  const progressWidth = `${(timeLeft / maxDuration) * 100}%`;
 
   return (
     <SafeAreaView
@@ -253,27 +385,27 @@ function TestScreen({ route, navigation }) {
         { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32 },
       ]}
     >
-      <TopBar title={`Test ${testName}`} leftButton={() => navigation.openDrawer()} />
+      <TopBar title={`Test ${test.name}`} leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
         {!completed && q && (
           <>
             <View style={styles.topRow}>
-              <Text style={styles.small}>
-                Question {index + 1} of {test.questions.length}
+              <Text style={[styles.small, { fontFamily: 'Roboto-Regular' }]}>
+                Pytanie {index + 1} z {test.questions.length}
               </Text>
-              <Text style={styles.small}>Time left: {timeLeft}s</Text>
+              <Text style={[styles.small, { fontFamily: 'Roboto-Regular' }]}>Pozostało: {timeLeft}s</Text>
             </View>
 
             <View style={styles.progressBarBackground}>
               <View style={[styles.progressBarFill, { width: progressWidth }]} />
             </View>
 
-            <Text style={styles.questionText}>{q.question}</Text>
+            <Text style={[styles.questionText, { fontFamily: 'Merriweather-Regular' }]}>{q.question}</Text>
 
             <View style={styles.answersBox}>
               {q.answers.map((a, idx) => (
                 <TouchableOpacity key={idx} style={styles.answerButton} onPress={() => answer(idx)}>
-                  <Text style={styles.answerText}>{a.content}</Text>
+                  <Text style={[styles.answerText, { fontFamily: 'Roboto-Regular' }]}>{a.content}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -282,7 +414,7 @@ function TestScreen({ route, navigation }) {
 
         {completed && (
           <View style={styles.submitBox}>
-            <Text style={{ marginBottom: 8 }}>
+            <Text style={{ marginBottom: 8, fontFamily: 'Roboto-Regular' }}>
               Score: {score} / {test.questions.length}
             </Text>
             <TextInput
@@ -292,7 +424,7 @@ function TestScreen({ route, navigation }) {
               onChangeText={setPlayerName}
             />
             <TouchableOpacity style={styles.saveButton} onPress={submitName}>
-              <Text style={styles.saveButtonText}>Save score</Text>
+              <Text style={styles.saveButtonText}>Wyślij wynik</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -304,10 +436,19 @@ function TestScreen({ route, navigation }) {
 function ResultsScreen({ navigation }) {
   const [results, setResults] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
-    const data = await loadResults();
-    setResults(data);
+    setLoading(true);
+    const remote = await loadResultsRemote(20);
+    if (remote && remote.length) {
+      setResults(remote);
+      setLoading(false);
+      return;
+    }
+    const local = await loadResultsLocal();
+    setResults(local);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -324,50 +465,78 @@ function ResultsScreen({ navigation }) {
       ]}
     >
       <TopBar title="RESULTS" leftButton={() => navigation.openDrawer()} />
-      <FlatList
-        data={results}
-        keyExtractor={(item, idx) => item.nick + idx}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await loadData(); setRefreshing(false); }} />}
-        ListHeaderComponent={
-          <View style={styles.tableHeader}>
-            <Text style={[styles.cell, styles.headCell]}>Nick</Text>
-            <Text style={[styles.cell, styles.headCell]}>Score</Text>
-            <Text style={[styles.cell, styles.headCell]}>Test</Text>
-            <Text style={[styles.cell, styles.headCell]}>Date</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.tableRow}>
-            <Text style={styles.cell}>{item.nick}</Text>
-            <Text style={styles.cell}>{item.score}/{item.total}</Text>
-            <Text style={styles.cell}>{item.type}</Text>
-            <Text style={styles.cell}>{new Date(item.date).toLocaleString()}</Text>
-          </View>
-        )}
-      />
+      {loading ? (
+        <ActivityIndicator style={{ marginTop: 20 }} />
+      ) : (
+        <FlatList
+          data={results}
+          keyExtractor={(item, idx) => (item.nick || 'n') + idx}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await loadData();
+                setRefreshing(false);
+              }}
+            />
+          }
+          ListHeaderComponent={
+            <View style={styles.tableHeader}>
+              <Text style={[styles.cell, styles.headCell, { fontFamily: 'Merriweather-Regular' }]}>Nick</Text>
+              <Text style={[styles.cell, styles.headCell, { fontFamily: 'Merriweather-Regular' }]}>Score</Text>
+              <Text style={[styles.cell, styles.headCell, { fontFamily: 'Merriweather-Regular' }]}>Test</Text>
+              <Text style={[styles.cell, styles.headCell, { fontFamily: 'Merriweather-Regular' }]}>Date</Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.tableRow}>
+              <Text style={[styles.cell, { fontFamily: 'Roboto-Regular' }]}>{item.nick}</Text>
+              <Text style={[styles.cell, { fontFamily: 'Roboto-Regular' }]}>{item.score}/{item.total}</Text>
+              <Text style={[styles.cell, { fontFamily: 'Roboto-Regular' }]}>{item.type}</Text>
+              <Text style={[styles.cell, { fontFamily: 'Roboto-Regular' }]}>{item.date || "no date"}</Text>
+            </View>
+          )}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 function DrawerContent({ navigation }) {
+  const [tests, setTests] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const list = await fetchTestsList();
+      const mapped = list.map((t) => {
+        if (typeof t === 'string') return { id: t, name: `Test ${t}` };
+        return { id: t.id || t._id || t._id, name: t.name || t.title || `Test ${t.id || ''}` };
+      });
+      if (mounted) setTests(mapped);
+    })();
+    return () => (mounted = false);
+  }, []);
+
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 10 }}>Quiz App</Text>
+      <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 10, fontFamily: 'Merriweather-Regular' }}>Quiz App</Text>
       <Image source={require('./assets/egg.png')} style={{ width: 120, height: 120, marginBottom: 20 }} />
 
       <TouchableOpacity onPress={() => navigation.navigate('Home')} style={[styles.drawerButton, { marginBottom: 20 }]}>
-        <Text style={{ fontSize: 18 }}>Home Page</Text>
+        <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Home Page</Text>
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => navigation.navigate('Results')} style={[styles.drawerButton, { marginBottom: 20 }]}>
-        <Text style={{ fontSize: 18 }}>Results</Text>
+        <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Results</Text>
       </TouchableOpacity>
 
       <View style={{ borderBottomWidth: 1, borderBottomColor: '#ccc', marginVertical: 12 }} />
 
-      {SAMPLE_TESTS.map((t) => (
-        <TouchableOpacity key={t.id} onPress={() => navigation.navigate('Test', { testId: t.id, testName: t.name })} style={[styles.drawerButton, { marginBottom: 15 }]}>
-          <Text style={{ fontSize: 18 }}>Test {t.name}</Text>
+      {tests.map((t) => (
+        <TouchableOpacity key={t.id} onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })} style={[styles.drawerButton, { marginBottom: 15 }]}>
+          <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Test {t.name}</Text>
         </TouchableOpacity>
       ))}
     </SafeAreaView>
@@ -391,11 +560,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const firstLaunch = await AsyncStorage.getItem(FIRST_LAUNCH_KEY);
-      if (!firstLaunch) {
-        setShowWelcome(true);
+      try {
+        const firstLaunch = await AsyncStorage.getItem(FIRST_LAUNCH_KEY);
+        if (!firstLaunch) {
+          setShowWelcome(true);
+        }
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, []);
 
@@ -448,5 +622,6 @@ const styles = StyleSheet.create({
   progressBarFill: { height: '100%', backgroundColor: 'yellow' },
   cell: { flex: 1, fontSize: 12 },
   headCell: { fontWeight: '700' },
-});
 
+  headingFont: { fontFamily: 'Merriweather-Bold' },
+});
