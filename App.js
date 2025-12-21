@@ -4,6 +4,10 @@ import { enableScreens } from 'react-native-screens';
 import { Platform, StatusBar, RefreshControl } from 'react-native';
 enableScreens();
 import React, { useState, useEffect, useRef } from 'react';
+import { ScrollView } from 'react-native';
+import _ from 'lodash';
+import { useNetworkStatus } from './useNetworkStatus';
+import NetInfo from '@react-native-community/netinfo';
 import {
   SafeAreaView,
   View,
@@ -17,6 +21,9 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const TESTS_STORAGE_KEY = '@daily_tests';
+const TESTS_FETCH_DATE_KEY = '@last_tests_fetch_date';
 
 const Drawer = createDrawerNavigator();
 
@@ -91,7 +98,7 @@ async function loadResultsLocal() {
 
 async function sendResultRemoteAndSave(result) {
   try {
-    await fetch('https://tgryl.pl/quiz/result', {
+    await fetch('https://cors-anywhere.herokuapp.com/https://tgryl.pl/quiz/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(result),
@@ -211,53 +218,73 @@ function TopBar({ title, leftButton }) {
   );
 }
 
+
+async function fetchAndStoreTestsDaily() {
+  try {
+    const isConnected = await NetInfo.fetch().then(s => s.isConnected && s.isInternetReachable);
+
+    const lastFetch = await AsyncStorage.getItem(TESTS_FETCH_DATE_KEY);
+    const today = new Date().toISOString().split('T')[0];
+
+    if (!isConnected || lastFetch === today) {
+      const stored = await AsyncStorage.getItem(TESTS_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    }
+
+    const list = await fetchTestsList();
+    const detailedTests = await Promise.all(
+      list.map(async (t) => {
+        const id = t.id || t._id || t;
+        const details = await fetchTestDetailsAndTranslate(id);
+        return details;
+      })
+    );
+
+    await AsyncStorage.setItem(TESTS_STORAGE_KEY, JSON.stringify(detailedTests));
+    await AsyncStorage.setItem(TESTS_FETCH_DATE_KEY, today);
+
+    return detailedTests;
+  } catch (e) {
+    console.warn('fetchAndStoreTestsDaily error', e);
+    const stored = await AsyncStorage.getItem(TESTS_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  }
+}
+
 function HomeScreen({ navigation }) {
-  const [tests, setTests] = useState(null);
+  const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const isConnected = useNetworkStatus();
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
-      const list = await fetchTestsList();
-      if (mounted) {
-        const mapped = list.map((t) => {
-          if (typeof t === 'string') return { id: t, name: `Test ${t}` };
-          return { id: t.id || t._id || t._id, name: t.name || t.title || `Test ${t.id || ''}` };
-        });
-        setTests(mapped.length ? mapped : SAMPLE_TESTS.map((s) => ({ id: s.id, name: s.name })));
-      }
+      const dailyTests = await fetchAndStoreTestsDaily();
+      if (mounted) setTests(_.shuffle(dailyTests));
       setLoading(false);
     })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    return () => { mounted = false; };
+  }, [isConnected]);
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32 },
-      ]}
-    >
+    <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 32 }]}>
       <TopBar title="HOME PAGE" leftButton={() => navigation.openDrawer()} />
       <View style={styles.content}>
+        {!isConnected && <Text style={{ color: 'red', marginBottom: 10 }}>Brak internetu. Wczytano zapisane testy.</Text>}
         <Text style={[styles.sectionTitle, styles.headingFont]}>Lista testów</Text>
         {loading && <ActivityIndicator size="small" />}
-        {!loading && tests && tests.length === 0 && <Text>Brak testów</Text>}
-        {!loading &&
-          tests &&
-          tests.map((t) => (
-            <View key={t.id} style={styles.testRow}>
-              <TouchableOpacity
-                style={styles.testButton}
-                onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })}
-              >
-                <Text style={[styles.testButtonText, { fontFamily: 'Roboto-Regular' }]}>{t.name}</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+        {!loading && tests.length === 0 && <Text>Brak testów</Text>}
+        {!loading && tests.map((t) => (
+          <View key={t.id} style={styles.testRow}>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })}
+            >
+              <Text style={[styles.testButtonText, { fontFamily: 'Roboto-Regular' }]}>{t.name}</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
       </View>
     </SafeAreaView>
   );
@@ -273,18 +300,36 @@ function TestScreen({ route, navigation }) {
   const timerRef = useRef(null);
   const [completed, setCompleted] = useState(false);
   const [playerName, setPlayerName] = useState('');
+
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!localTest) {
-        const fetched = await fetchTestDetailsAndTranslate(testId);
-        if (mounted && fetched) {
-          setTest(fetched);
-        }
-      }
-    })();
-    return () => (mounted = false);
-  }, [testId]);
+    const unsubscribe = navigation.addListener('focus', async () => {
+      let baseTest = localTest || (await fetchTestDetailsAndTranslate(testId));
+      if (!baseTest) return;
+
+      const shuffled = {
+        ...baseTest,
+        questions: _.shuffle(
+          baseTest.questions.map((q) => ({
+            ...q,
+            answers: _.shuffle(q.answers),
+          }))
+        ),
+      };
+      setTest(shuffled);
+
+      setIndex(0);
+      setScore(0);
+      setCompleted(false);
+      setPlayerName('');
+      clearInterval(timerRef.current);
+      const firstDuration = shuffled.questions?.[0]?.duration || 30;
+      setTimeLeft(firstDuration);
+      startTimer(firstDuration);
+    });
+
+    return unsubscribe;
+  }, [navigation, testId]);
+
 
   useEffect(() => {
     if (!test) return;
@@ -323,19 +368,7 @@ function TestScreen({ route, navigation }) {
     }, 1000);
   };
 
-  if (!test) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <TopBar title={`Test ${testName || ''}`} leftButton={() => navigation.goBack()} />
-        <View style={styles.content}>
-          <Text>Ładowanie testu...</Text>
-          <ActivityIndicator />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const q = !completed ? test.questions[index] : null;
+  const q = !completed ? test?.questions[index] : null;
 
   const goToNextQuestion = (correct) => {
     if (correct) setScore((s) => s + 1);
@@ -360,19 +393,39 @@ function TestScreen({ route, navigation }) {
       Alert.alert('Proszę wpisać imię');
       return;
     }
+
     const resultPayload = {
       nick: playerName.trim(),
       score: score,
       total: test.questions.length,
-      type: test.name || testName || 'unknown'
+      type: test.name || testName || 'unknown',
     };
-    try {
-      await sendResultRemoteAndSave(resultPayload);
-      Alert.alert('Zapisano');
-      navigation.navigate('Results');
-    } catch (e) {
-      Alert.alert('Błąd zapisu');
-    }
+
+    await sendResultRemoteAndSave(resultPayload).catch((e) =>
+      console.warn('Send failed', e)
+    );
+
+    setScore(0);
+    setIndex(0);
+    setCompleted(false);
+    setPlayerName('');
+
+    navigation.navigate('Results');
+  }
+
+  if (!test) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TopBar
+          title={`Test ${testName || ''}`}
+          leftButton={() => navigation.goBack()}
+        />
+        <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+          <Text>Ładowanie testu...</Text>
+          <ActivityIndicator />
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   const maxDuration = q?.duration || 30;
@@ -393,19 +446,29 @@ function TestScreen({ route, navigation }) {
               <Text style={[styles.small, { fontFamily: 'Roboto-Regular' }]}>
                 Pytanie {index + 1} z {test.questions.length}
               </Text>
-              <Text style={[styles.small, { fontFamily: 'Roboto-Regular' }]}>Pozostało: {timeLeft}s</Text>
+              <Text style={[styles.small, { fontFamily: 'Roboto-Regular' }]}>
+                Pozostało: {timeLeft}s
+              </Text>
             </View>
 
             <View style={styles.progressBarBackground}>
               <View style={[styles.progressBarFill, { width: progressWidth }]} />
             </View>
 
-            <Text style={[styles.questionText, { fontFamily: 'Merriweather-Regular' }]}>{q.question}</Text>
+            <Text style={[styles.questionText, { fontFamily: 'Merriweather-Regular' }]}>
+              {q.question}
+            </Text>
 
             <View style={styles.answersBox}>
               {q.answers.map((a, idx) => (
-                <TouchableOpacity key={idx} style={styles.answerButton} onPress={() => answer(idx)}>
-                  <Text style={[styles.answerText, { fontFamily: 'Roboto-Regular' }]}>{a.content}</Text>
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.answerButton}
+                  onPress={() => answer(idx)}
+                >
+                  <Text style={[styles.answerText, { fontFamily: 'Roboto-Regular' }]}>
+                    {a.content}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -505,26 +568,39 @@ function ResultsScreen({ navigation }) {
 
 function DrawerContent({ navigation }) {
   const [tests, setTests] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadTests = async () => {
+    setLoading(true);
+    try {
+      const dailyTests = await fetchAndStoreTestsDaily();
+      setTests(_.shuffle(dailyTests));
+    } catch (e) {
+      Alert.alert('Błąd', 'Nie udało się pobrać testów');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const list = await fetchTestsList();
-      const mapped = list.map((t) => {
-        if (typeof t === 'string') return { id: t, name: `Test ${t}` };
-        return { id: t.id || t._id || t._id, name: t.name || t.title || `Test ${t.id || ''}` };
-      });
-      if (mounted) setTests(mapped);
-    })();
-    return () => (mounted = false);
+    loadTests();
   }, []);
+
+  const startRandomTest = () => {
+    if (!tests.length) {
+      Alert.alert('Brak testów');
+      return;
+    }
+    const random = tests[Math.floor(Math.random() * tests.length)];
+    navigation.navigate('Test', { testId: String(random.id), testName: random.name });
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
       <Text style={{ fontSize: 22, fontWeight: '700', marginBottom: 10, fontFamily: 'Merriweather-Regular' }}>Quiz App</Text>
       <Image source={require('./assets/egg.png')} style={{ width: 120, height: 120, marginBottom: 20 }} />
 
-      <TouchableOpacity onPress={() => navigation.navigate('Home')} style={[styles.drawerButton, { marginBottom: 20 }]}>
+      <TouchableOpacity onPress={() => navigation.navigate('Home')} style={[styles.drawerButton, { marginBottom: 12 }]}>
         <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Home Page</Text>
       </TouchableOpacity>
 
@@ -532,16 +608,31 @@ function DrawerContent({ navigation }) {
         <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Results</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity onPress={startRandomTest} style={[styles.drawerButton, { marginBottom: 12, backgroundColor: '#f0f0f0' }]}>
+        <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>🎲 Losowy test</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={loadTests} disabled={loading} style={[styles.drawerButton, { marginBottom: 20, backgroundColor: loading ? '#ddd' : '#e3f2fd' }]}>
+        <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>🔄 Pobierz najnowsze testy</Text>
+      </TouchableOpacity>
+
+      {loading && <ActivityIndicator style={{ marginBottom: 10 }} />}
+
       <View style={{ borderBottomWidth: 1, borderBottomColor: '#ccc', marginVertical: 12 }} />
 
       {tests.map((t) => (
-        <TouchableOpacity key={t.id} onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })} style={[styles.drawerButton, { marginBottom: 15 }]}>
-          <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>Test {t.name}</Text>
+        <TouchableOpacity
+          key={t.id}
+          onPress={() => navigation.navigate('Test', { testId: String(t.id), testName: t.name })}
+          style={[styles.drawerButton, { marginBottom: 10 }]}
+        >
+          <Text style={{ fontSize: 18, fontFamily: 'Roboto-Regular' }}>{t.name}</Text>
         </TouchableOpacity>
       ))}
     </SafeAreaView>
   );
 }
+
 
 function DrawerNavigator() {
   return (
